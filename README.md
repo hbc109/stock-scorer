@@ -1,6 +1,6 @@
 # Stock Scorer
 
-A stock assessment tool that scores equities across four dimensions using Yahoo Finance data, with both a CLI and a web dashboard.
+An exchange-agnostic stock assessment tool that scores equities across four dimensions using Yahoo Finance data, with both a CLI and a web dashboard. Works with any stock on any exchange supported by Yahoo Finance.
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![Flask](https://img.shields.io/badge/Flask-web%20UI-green) ![yfinance](https://img.shields.io/badge/Data-Yahoo%20Finance-purple)
 
@@ -46,14 +46,24 @@ pip install flask yfinance pandas
 ### Command Line
 
 ```bash
-# Single stock
-python3 stock_scorer.py AAPL
+# US stocks
+python3 stock_scorer.py AAPL MSFT NVDA
 
-# Multiple stocks (with comparison table)
-python3 stock_scorer.py AAPL MSFT NVDA GOOG META
+# Hong Kong
+python3 stock_scorer.py 0857.HK 0005.HK 9988.HK
 
-# Hong Kong stocks
-python3 stock_scorer.py 0857.HK 0005.HK
+# London
+python3 stock_scorer.py SHEL.L BP.L
+
+# Tokyo
+python3 stock_scorer.py 7203.T 6758.T
+
+# Europe
+python3 stock_scorer.py SAP.DE MC.PA
+
+# Any Yahoo Finance ticker works — use the suffix for the exchange
+# .HK (Hong Kong), .L (London), .T (Tokyo), .DE (Frankfurt),
+# .PA (Paris), .SS (Shanghai), .SZ (Shenzhen), .TO (Toronto), etc.
 ```
 
 ### Web Dashboard
@@ -86,8 +96,29 @@ stock_app.py       — Flask web UI (single-file, embedded HTML/CSS/JS)
   └── POST /api/analyze        → Score up to 10 tickers, return JSON
 ```
 
+## Supported Exchanges
+
+Any exchange covered by Yahoo Finance, including but not limited to:
+
+| Suffix | Exchange |
+|---|---|
+| *(none)* | US (NYSE, NASDAQ) |
+| `.HK` | Hong Kong |
+| `.L` | London |
+| `.T` | Tokyo |
+| `.SS` | Shanghai |
+| `.SZ` | Shenzhen |
+| `.DE` | Frankfurt |
+| `.PA` | Paris |
+| `.TO` | Toronto |
+| `.AX` | Australia |
+| `.KS` | Korea |
+| `.SI` | Singapore |
+
 ## Notes
 
+- **Exchange agnostic** — works with any ticker Yahoo Finance supports, just use the correct suffix
+- Peer comparison uses US sector peer lists as a baseline — for non-US stocks, relative strength comparison may be less precise
 - Peer comparison fetches data for up to 5 sector peers per stock — this can be slow for large batches
 - ETFs, mutual funds, indices, and other non-equity instruments are detected and skipped with a warning
 - Hong Kong tickers are auto-normalized (e.g. `00857.HK` → `0857.HK`)
