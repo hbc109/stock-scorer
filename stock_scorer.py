@@ -7,8 +7,49 @@ Usage: python3 stock_scorer.py AAPL [MSFT GOOG ...]
 """
 
 import sys
+import time
 import yfinance as yf
 import pandas as pd
+
+# Yahoo Finance silently rate-limits yfinance — sometimes returning HTTP 429
+# (Too Many Requests), sometimes 426 ("Upgrade Required"), sometimes a stub
+# empty info dict. These helpers retry on those signals and surface a clear
+# error if we still can't get usable data.
+RATE_LIMIT_HINTS = ("upgrade required", "rate limit", "too many requests", "429", "426")
+
+
+def _looks_like_rate_limit(err: BaseException) -> bool:
+    return any(h in str(err).lower() for h in RATE_LIMIT_HINTS)
+
+
+def safe_info(ticker, symbol: str = "?", retries: int = 3, base_delay: float = 1.5) -> dict:
+    """Fetch ticker.info with retry on rate-limit / transient errors.
+    Raises RuntimeError with a clear message after retries are exhausted.
+    """
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            info = ticker.info
+        except Exception as e:  # network / parser / yfinance internal
+            last_err = e
+            if attempt < retries and _looks_like_rate_limit(e):
+                time.sleep(base_delay * attempt)
+                continue
+            if attempt < retries:
+                time.sleep(base_delay * attempt)
+                continue
+            break
+        # yfinance sometimes returns {} or just {"trailingPegRatio": None}
+        # when rate-limited rather than raising.
+        if info and len(info) > 5:
+            return info
+        last_err = RuntimeError(f"empty info dict (size={len(info) if info else 0})")
+        if attempt < retries:
+            time.sleep(base_delay * attempt)
+    raise RuntimeError(
+        f"Yahoo Finance is rate-limiting or unreachable for {symbol}. "
+        f"Try again in a minute. (last error: {last_err})"
+    )
 
 # ── Sentiment keyword lists ──────────────────────────────────────────────
 
@@ -441,7 +482,7 @@ def assess_stock(symbol):
     print(f"{'═' * 60}")
 
     ticker = yf.Ticker(symbol)
-    info = ticker.info
+    info = safe_info(ticker, symbol)
 
     if is_etf_or_fund(info):
         quote_type = safe_get(info, "quoteType", "ETF")
@@ -528,7 +569,7 @@ def assess_stock_data(symbol):
     """Return assessment data as a dict (no printing). Used by web UI."""
     symbol = normalize_ticker(symbol)
     ticker = yf.Ticker(symbol)
-    info = ticker.info
+    info = safe_info(ticker, symbol)
 
     name = safe_get(info, "shortName", symbol)
     sector = safe_get(info, "sector", "N/A")

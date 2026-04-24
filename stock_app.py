@@ -443,13 +443,35 @@ async function analyze() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({symbols})
     });
-    const data = await resp.json();
+
+    // Read body as text first so we can show meaningful errors when the
+    // server (or an upstream proxy / Yahoo's edge) returns a non-JSON body
+    // like "Upgrade Required" or an HTML error page.
+    const raw = await resp.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (_jsonErr) {
+      throw new Error(
+        'Server returned a non-JSON response (HTTP ' + resp.status + '). ' +
+        'This is usually Yahoo Finance rate-limiting yfinance — wait a minute and retry. ' +
+        'Body: ' + raw.slice(0, 200)
+      );
+    }
     if (data.error) throw new Error(data.error);
 
-    allResults = data.results.filter(r => !r.warning);
-    const allCards = data.results;
-    cards.innerHTML = allCards.map(cardHTML).join('');
+    allResults = (data.results || []).filter(r => !r.warning);
+    cards.innerHTML = (data.results || []).map(cardHTML).join('');
     renderComparison(allResults);
+
+    // Surface per-symbol errors as a soft warning rather than blocking output.
+    if (data.errors && data.errors.length) {
+      const lines = data.errors.map(e =>
+        (typeof e === 'string') ? e : (e.symbol + ': ' + e.message)
+      );
+      error.textContent = 'Some symbols failed:\n' + lines.join('\n');
+      error.style.display = 'block';
+    }
   } catch (e) {
     error.textContent = 'Error: ' + e.message;
     error.style.display = 'block';
@@ -473,12 +495,22 @@ def index():
     return HTML_PAGE
 
 
+@app.errorhandler(Exception)
+def _json_error_handler(e):
+    """Even on unexpected exceptions, return JSON so the frontend's
+    resp.json() never has to choke on a 'Upgrade Required' / HTML body."""
+    return jsonify({"error": f"server error: {type(e).__name__}: {e}", "results": [], "errors": []}), 500
+
+
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
-    data = request.get_json()
+    try:
+        data = request.get_json(silent=True) or {}
+    except Exception:
+        data = {}
     symbols = data.get("symbols", [])
     if not symbols:
-        return jsonify({"error": "No symbols provided"}), 400
+        return jsonify({"error": "No symbols provided", "results": [], "errors": []}), 400
 
     results = []
     errors = []
@@ -487,7 +519,7 @@ def api_analyze():
             result = assess_stock_data(sym)
             results.append(result)
         except Exception as e:
-            errors.append(f"{sym}: {str(e)}")
+            errors.append({"symbol": sym, "message": str(e)})
 
     return jsonify({"results": results, "errors": errors})
 
